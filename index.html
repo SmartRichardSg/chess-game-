@@ -16,26 +16,27 @@ function evaluate(position){
  for(let r=0;r<8;r++)for(let c=0;c<8;c++){const p=board[r][c];if(!p)continue;let val=values[p.type];if(p.type==='p')val+=(p.color==='w'?(6-r):(r-1))*5;if(p.type==='n'||p.type==='b')val+=(3.5-Math.abs(3.5-c))*4;score+=(p.color==='b'?val:-val);}
  return score;
 }
-function search(position,depth,alpha,beta){
- if(depth===0||position.game_over())return evaluate(position);
- const moves=position.moves({verbose:true});if(!moves.length)return evaluate(position);
- const maximizing=position.turn()==='b';let best=maximizing?-Infinity:Infinity;
- for(const move of moves){const next=new Chess(position.fen());next.move({from:move.from,to:move.to,promotion:move.promotion||'q'});const score=search(next,depth-1,alpha,beta);
- if(maximizing){best=Math.max(best,score);alpha=Math.max(alpha,best);}else{best=Math.min(best,score);beta=Math.min(beta,best);}
- if(beta<=alpha)break;
- }
- return best;
-}
 function computerMove(token){
  if(token!==gameToken||!busy)return;
  if(game.game_over()||game.turn()!=='b'){busy=false;render();return;}
- const depth=Number(document.getElementById('level').value)||2;
- const moves=game.moves({verbose:true});let best=-Infinity,choices=[];
- for(const move of moves){const next=new Chess(game.fen());next.move({from:move.from,to:move.to,promotion:move.promotion||'q'});const score=search(next,Math.max(0,depth-1),-Infinity,Infinity);
- if(score>best){best=score;choices=[move];}else if(score===best)choices.push(move);
+ // Keep the phone responsive: inspect only the legal replies, without a deep search tree.
+ const level=Number(document.getElementById('level').value)||2;
+ const moves=game.moves({verbose:true});let ranked=[];
+ for(const move of moves){
+  const next=new Chess(game.fen());
+  const result=next.move({from:move.from,to:move.to,promotion:move.promotion||'q'});
+  if(!result)continue;
+  let score=evaluate(next);
+  // Prefer forcing checks and captures; vary the weighting by selected difficulty.
+  if(next.in_check())score+=level===1?8:level===2?22:35;
+  if(move.captured){const values={p:100,n:320,b:335,r:500,q:900,k:0};score+=(values[move.captured]||0)*(level===1?0.45:level===2?0.8:1);}
+  // Small random factor avoids repetitive play when moves are equally good.
+  score+=(Math.random()-0.5)*(level===1?180:level===2?70:20);
+  ranked.push({move,score});
  }
  if(token!==gameToken)return;
- const chosen=choices[Math.floor(Math.random()*choices.length)];
+ ranked.sort((a,b)=>b.score-a.score);
+ const chosen=ranked.length?ranked[0].move:null;
  if(chosen){const result=game.move({from:chosen.from,to:chosen.to,promotion:chosen.promotion||'q'});if(result){lastMove={from:result.from,to:result.to};noteEl.textContent='Computer played '+result.san+(game.in_check()?' — check!':'');}}
  busy=false;selected=null;render();
 }
