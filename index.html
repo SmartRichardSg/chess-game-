@@ -19,19 +19,43 @@ function evaluate(position){
 function computerMove(token){
  if(token!==gameToken||!busy)return;
  if(game.game_over()||game.turn()!=='b'){busy=false;render();return;}
- // Keep the phone responsive: inspect only the legal replies, without a deep search tree.
+ // Two-ply look-ahead: Black considers White's best reply before choosing.
+ // This is deliberately bounded so it stays responsive on phones.
  const level=Number(document.getElementById('level').value)||2;
- const moves=game.moves({verbose:true});let ranked=[];
- for(const move of moves){
-  const next=new Chess(game.fen());
-  const result=next.move({from:move.from,to:move.to,promotion:move.promotion||'q'});
-  if(!result)continue;
-  let score=evaluate(next);
-  // Prefer forcing checks and captures; vary the weighting by selected difficulty.
-  if(next.in_check())score+=level===1?8:level===2?22:35;
-  if(move.captured){const values={p:100,n:320,b:335,r:500,q:900,k:0};score+=(values[move.captured]||0)*(level===1?0.45:level===2?0.8:1);}
-  // Small random factor avoids repetitive play when moves are equally good.
-  score+=(Math.random()-0.5)*(level===1?180:level===2?70:20);
+ const rootMoves=game.moves({verbose:true});
+ const values={p:100,n:320,b:335,r:500,q:900,k:20000};
+ function orderedMoves(position){
+  return position.moves({verbose:true}).sort((a,b)=>{
+   const av=(a.captured?(values[a.captured]||0):0)+(a.promotion?800:0);
+   const bv=(b.captured?(values[b.captured]||0):0)+(b.promotion?800:0);
+   return bv-av;
+  });
+ }
+ let ranked=[];
+ for(const move of rootMoves){
+  if(token!==gameToken)return;
+  const afterBlack=new Chess(game.fen());
+  const made=afterBlack.move({from:move.from,to:move.to,promotion:move.promotion||'q'});
+  if(!made)continue;
+  let score;
+  if(afterBlack.game_over()) score=evaluate(afterBlack);
+  else {
+   const replies=orderedMoves(afterBlack);
+   // White chooses the reply that is worst for Black.
+   let worstForBlack=Infinity;
+   for(const reply of replies){
+    const afterWhite=new Chess(afterBlack.fen());
+    afterWhite.move({from:reply.from,to:reply.to,promotion:reply.promotion||'q'});
+    let replyScore=evaluate(afterWhite);
+    // Prefer avoiding a position where White can win material immediately.
+    if(afterWhite.in_check()) replyScore-=level===1?0:12;
+    if(replyScore<worstForBlack)worstForBlack=replyScore;
+    if(worstForBlack<=-100000)break;
+   }
+   score=replies.length?worstForBlack:evaluate(afterBlack);
+  }
+  // Small, controlled variety; Hard plays the most consistently best move.
+  score+=(Math.random()-0.5)*(level===1?160:level===2?28:5);
   ranked.push({move,score});
  }
  if(token!==gameToken)return;
