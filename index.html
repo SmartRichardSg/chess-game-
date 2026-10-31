@@ -28,7 +28,7 @@ main{max-width:560px;margin:auto;padding:14px}.panel{background:white;border-rad
 <div class="board" id="board" aria-label="Chessboard"></div>
 <div class="actions"><button class="action" id="back">← Back</button><button class="action primary" id="restart">↻ Restart</button><button class="action" id="flip">⇅ Flip board</button></div>
 <div class="controls"><label for="level">Computer strength</label><select id="level"><option value="1">Easy</option><option value="2" selected>Medium</option><option value="3">Hard</option></select></div>
-<div class="note" id="note">You play White. The computer plays Black. Internet is needed to load the chess engine.</div>
+<div class="note" id="note">You play White. Stockfish plays Black. Internet is needed to load the engine.</div><div class="note" id="score"><b>Win / Draw / Loss:</b> Waiting for the first move.</div>
 <div class="moves"><h2>Move history</h2><div class="move-list" id="moves">Your moves will appear here.</div></div>
 </section></main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -68,14 +68,25 @@ function tap(s){
 function startEngine(){
  if(worker||engineFailed)return;
  try{
-  const base="https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/";
-  const source="self.Module={locateFile:function(p){return '"+base+"'+p;}};importScripts('"+base+"stockfish-19-lite-single.js');";
-  const blob=new Blob([source],{type:"text/javascript"}),url=URL.createObjectURL(blob);
-  worker=new Worker(url);
+  // Stockfish's published single-threaded build is itself a Worker script.
+  // Start it directly; its matching WASM file is in the same CDN directory.
+  const engineUrl="https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/stockfish-19-lite-single.js";
+  worker=new Worker(engineUrl);
   worker.onmessage=e=>{
    const line=String(e.data||"").trim();
    if(line==="uciok"){worker.postMessage("isready");return}
    if(line==="readyok"){engineReady=true;const q=readyQueue.splice(0);q.forEach(fn=>fn());return}
+   if(line.startsWith("info ") && line.includes(" score ")){
+    const cp=line.match(/ score cp (-?\\d+)/), mate=line.match(/ score mate (-?\\d+)/);
+    if(cp||mate){
+     let evalPawns=cp?Number(cp[1])/100:(Number(mate[1])>0?10:-10);
+     if(game.turn()==="b")evalPawns=-evalPawns;
+     const white=1/(1+Math.pow(10,-evalPawns*1.15));
+     const draw=Math.max(0.04,0.30*Math.exp(-Math.abs(evalPawns)*0.72));
+     const win=white*(1-draw),loss=(1-white)*(1-draw),sum=win+draw+loss;
+     $("score").innerHTML="<b>Estimated White win / Draw / Black win:</b> "+Math.round(100*win/sum)+"% / "+Math.round(100*draw/sum)+"% / "+Math.round(100*loss/sum);
+    }
+   }
    if(line.startsWith("bestmove ")){
     const t=activeToken;activeToken=null;if(t!==token||!busy)return;
     const u=line.split(/\s+/)[1];if(u&&u!=="(none)"){const m=game.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]||"q"});if(m){last={from:m.from,to:m.to};$("note").textContent="Computer played "+m.san}}
